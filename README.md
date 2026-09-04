@@ -129,6 +129,46 @@ computed from data that is quietly wrong is worse than no rate at all:
   in every rate derived from it. The device stamps each packet with its own
   clock and the host solves for the real rate.
 
+## When not to believe a rate
+
+Sleeping respiratory rate is the clinical reason this device exists — vets read
+a sustained figure across a night as an early sign of heart failure — so the way
+an estimate fails matters more than how often it succeeds.
+
+It fails in a specific and dangerous way. Given a window with no real
+periodicity, autocorrelation settles wherever the search happens to peak, and
+that is very often the top of the band: 0.60 Hz reads as **36.3 breaths/min**.
+That is not obvious nonsense anyone would discard. It lands squarely in the
+range that signals trouble, so a restless minute looks exactly like the
+condition the device is watching for.
+
+`dsp.gateRate()` therefore refuses an estimate that is
+
+- **pinned to either band edge** — within 4% of the search limits, which is the
+  filter talking rather than the subject;
+- **below 0.4 autocorrelation confidence** — the peak height already says how
+  periodic the window was;
+- **taken while the subject moved** — the accelerometer measures this directly,
+  so there is no need to infer it.
+
+`dsp.acceptedMedian()` then aggregates what survives, because the clinical
+figure is a trend across a night rather than any single window, and it reports
+coverage alongside the median: a confident number computed from 3% of the night
+is not a measurement, and the coverage figure is what says so.
+
+`tools/gate_check.mjs` replays recorded sessions through the same analysis the
+page runs, so the gate can be checked against real failures rather than
+synthetic ones. Over six neck recordings it rejects both sessions that produced
+36.3 br/min, takes the one with sustained movement to zero coverage, and keeps
+100% of the stillest session at a median of 9.3 br/min.
+
+One caveat the same run exposed: the human preset's 0.10 Hz floor is 6.0
+br/min, which is close enough to a slow adult's actual rate that genuine
+readings get rejected as pinned to the bottom. That is the gate being honest
+about a measurement at the edge of its range. The `dogRest` preset starts at
+0.15 Hz against a sleeping dog's 15–30 br/min, so it has the headroom the human
+one lacks.
+
 ## Recording
 
 **Start recording** captures at full resolution into memory and saves to
