@@ -197,6 +197,25 @@ The USB path is independent of BLE, so it works with no browser connected. It
 does not quite keep up at 208 Hz — formatting is the bottleneck, and the run
 will log some overruns — but the gaps are marked honestly in the index.
 
+## The hardware
+
+One Seeed XIAO nRF52840 Sense — nRF52840 SoC with an LSM6DS3TR-C 6-axis IMU on
+board — with an LP502030 lithium pouch cell soldered to the back. The cell is
+5 × 20 × 30 mm, so the pair stack into a small flat rectangle roughly the
+footprint of the battery itself.
+
+Right now the two are twist-tied together, which is honest about what this
+stage is: a bench rig for finding out whether the signal exists at all, not
+something to put on an animal. It reads a real human heart rate and breathing
+rate through skin at the neck, which is what it was for. A printed enclosure
+that mounts to a collar is the next physical step, and until that exists none
+of the measurements here have been taken through fur — which is the single
+biggest unknown between this and a working dog monitor.
+
+Nothing about the approach is specific to this board. It needs a 6-axis IMU
+that can sustain a couple of hundred hertz, a radio, and a battery; the
+firmware is the only part that knows which one it is.
+
 ## Two hardware traps on this board
 
 Both cost real time; both are one line to avoid.
@@ -239,3 +258,17 @@ bootloader and rerun.
   the obvious gate for "this window is not measurable".
 - Once the bands are settled, move the rate estimation on-device and stream
   numbers instead of samples, which is where the battery win is.
+
+## Licence
+
+MIT — see `LICENSE`. Use it for anything, commercial included; the only
+condition is that the copyright notice travels with it.
+
+This is arithmetic applied to accelerometer samples. Bandpass filters and
+autocorrelation are not anyone's property, and it would be strange to pretend
+otherwise. If it turns out to be useful, a mention of the project is welcome
+and is not required.
+
+Not a veterinary device. It is a research instrument for finding out what an
+IMU can and cannot see, and the whole point of the gating above is that it
+tells you when it is not measuring.
