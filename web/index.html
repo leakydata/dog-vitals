@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dog Vitals — IMU plotter</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%90%95%3C/text%3E%3C/svg%3E">
+<style>
+/* Palette: the reference categorical slots 1-3, validated all-pairs in both
+   modes. Dark is a selected set of steps for the dark surface, not an
+   inversion. Every trace is direct-labelled, which is what discharges the
+   light-mode contrast relief rule for the aqua slot. */
+:root {
+  color-scheme: light;
+  --surface-0: #f4f4f2;
+  --surface-1: #fcfcfb;
+  --surface-2: #ffffff;
+  --border:    #dcdbd7;
+  --grid:      #e6e5e2;
+  --text-primary:   #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted:     #77756f;
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --marker:   #e34948;
+  --good:     #008300;
+  --warn:     #eda100;
+  --bad:      #e34948;
+  --band:     rgba(42,120,214,0.10);
+  --band-2:   rgba(235,104,52,0.10);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #131312;
+    --surface-1: #1a1a19;
+    --surface-2: #232322;
+    --border:    #35342f;
+    --grid:      #2c2b28;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #8d8b82;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --marker:   #e66767;
+    --good:     #37b24d;
+    --warn:     #c98500;
+    --bad:      #e66767;
+    --band:     rgba(57,135,229,0.14);
+    --band-2:   rgba(217,89,38,0.14);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #131312;
+  --surface-1: #1a1a19;
+  --surface-2: #232322;
+  --border:    #35342f;
+  --grid:      #2c2b28;
+  --text-primary:   #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted:     #8d8b82;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --marker:   #e66767;
+  --good:     #37b24d;
+  --warn:     #c98500;
+  --bad:      #e66767;
+  --band:     rgba(57,135,229,0.14);
+  --band-2:   rgba(217,89,38,0.14);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+h1 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+h2 { font-size: 12px; margin: 0 0 8px; font-weight: 600; color: var(--text-secondary);
+     text-transform: uppercase; letter-spacing: 0.06em; }
+
+header {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+}
+.spacer { flex: 1; }
+
+button, select, input[type=number], input[type=text] {
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  min-height: 32px;
+}
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--text-muted); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+button.danger  { background: var(--bad); border-color: var(--bad); color: #fff; }
+label { color: var(--text-secondary); font-size: 12px; display: inline-flex;
+        align-items: center; gap: 6px; }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px; border-radius: 999px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  font-size: 12px; color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.chip b { color: var(--text-primary); font-weight: 600; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+.dot.ok   { background: var(--good); }
+.dot.warn { background: var(--warn); }
+.dot.bad  { background: var(--bad); }
+
+main { padding: 14px 16px 40px; display: grid; gap: 14px; max-width: 1500px; margin: 0 auto; }
+
+.panel {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+/* Vitals: hero numbers. These are the answer; the plots are the evidence. */
+.vitals { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.tile { background: var(--surface-1); border: 1px solid var(--border);
+        border-radius: 10px; padding: 14px 16px; }
+.tile .label { font-size: 12px; color: var(--text-secondary);
+               text-transform: uppercase; letter-spacing: 0.06em; }
+.tile .value { font-size: 42px; font-weight: 600; line-height: 1.1;
+               font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .value .unit { font-size: 15px; font-weight: 500; color: var(--text-secondary); margin-left: 6px; }
+.tile .sub { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.conf { height: 4px; border-radius: 2px; background: var(--grid); margin-top: 9px; overflow: hidden; }
+.conf > i { display: block; height: 100%; background: var(--series-1); border-radius: 2px; }
+
+.chart { position: relative; }
+.chart canvas { width: 100%; height: 150px; display: block; border-radius: 6px; }
+.chart.tall canvas { height: 190px; }
+.chart .cap { display: flex; justify-content: space-between; align-items: baseline;
+              margin-bottom: 6px; gap: 10px; flex-wrap: wrap; }
+.chart .cap .note { font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--text-secondary); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 10px; height: 2px; border-radius: 1px; display: inline-block; }
+
+table { width: 100%; border-collapse: collapse; font-size: 12px;
+        font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+th { color: var(--text-secondary); font-weight: 600; }
+td.num, th.num { text-align: right; }
+
+.note-box { font-size: 12px; color: var(--text-secondary);
+            background: var(--surface-2); border: 1px solid var(--border);
+            border-left: 3px solid var(--warn);
+            border-radius: 6px; padding: 8px 10px; }
+.hidden { display: none !important; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Dog Vitals</h1>
+  <button id="btnConnect" class="primary">Connect</button>
+  <button id="btnDisconnect" disabled>Disconnect</button>
+  <span class="chip"><i class="dot" id="dotLink"></i><span id="txtLink">not connected</span></span>
+  <span class="chip">battery <b id="txtBatt">—</b></span>
+  <span class="chip">rate <b id="txtRate">—</b></span>
+  <span class="chip">lost <b id="txtLost">—</b></span>
+  <button id="btnRecTop" class="primary" title="Start/stop recording">● Record</button>
+  <span class="chip" id="chipRec" hidden>rec <b id="txtRecTime">0:00</b> · <b id="txtRecN2">0</b></span>
+  <span class="spacer"></span>
+  <label>mode
+    <select id="selMode">
+      <option value="live">Live</option>
+      <option value="review">Review</option>
+    </select>
+  </label>
+  <button id="btnTheme" title="Toggle light/dark">◐</button>
+</header>
+
+<main>
+
+  <div id="banner" class="note-box hidden"></div>
+
+  <section class="panel">
+    <h2>Subject &amp; bands</h2>
+    <div class="row">
+      <label>preset
+        <select id="selPreset">
+          <option value="human">Human — neck</option>
+          <option value="dogRest">Dog — resting</option>
+          <option value="dogPant">Dog — panting</option>
+        </select>
+      </label>
+      <label>breathing band
+        <input type="number" id="respLo" step="any" min="0.02" style="width:74px"> –
+        <input type="number" id="respHi" step="any" min="0.05" style="width:74px"> Hz
+      </label>
+      <label>cardiac band
+        <input type="number" id="cardLo" step="any" min="0.5" style="width:74px"> –
+        <input type="number" id="cardHi" step="any" min="1" style="width:74px"> Hz
+      </label>
+      <label>heart rate search
+        <input type="number" id="hrLo" step="any" min="20" style="width:74px"> –
+        <input type="number" id="hrHi" step="any" min="40" style="width:74px"> bpm
+      </label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label>breathing from
+        <select id="selRespSrc">
+          <option value="accelPca">Accel — principal axis</option>
+          <option value="accelX">Accel X</option>
+          <option value="accelY">Accel Y</option>
+          <option value="accelZ">Accel Z</option>
+          <option value="gyroPca">Gyro — principal axis</option>
+        </select>
+      </label>
+      <label>cardiac from
+        <select id="selCardSrc">
+          <option value="gyroPca">Gyro — principal axis</option>
+          <option value="accelPca">Accel — principal axis</option>
+          <option value="gyroX">Gyro X</option>
+          <option value="gyroY">Gyro Y</option>
+          <option value="gyroZ">Gyro Z</option>
+          <option value="accelX">Accel X</option>
+          <option value="accelY">Accel Y</option>
+          <option value="accelZ">Accel Z</option>
+        </select>
+      </label>
+      <label>window
+        <select id="selWindow">
+          <option value="15">15 s</option>
+          <option value="30" selected>30 s</option>
+          <option value="60">60 s</option>
+          <option value="120">120 s</option>
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <section class="vitals">
+    <div class="tile">
+      <div class="label">Breathing</div>
+      <div class="value"><span id="valResp">—</span><span class="unit">breaths/min</span></div>
+      <div class="sub" id="subResp">no estimate yet</div>
+      <div class="conf"><i id="confResp" style="width:0%"></i></div>
+    </div>
+    <div class="tile">
+      <div class="label">Heart rate</div>
+      <div class="value"><span id="valHr">—</span><span class="unit">bpm</span></div>
+      <div class="sub" id="subHr">no estimate yet</div>
+      <div class="conf"><i id="confHr" style="width:0%; background:var(--series-2)"></i></div>
+    </div>
+    <div class="tile">
+      <div class="label">Signal</div>
+      <div class="value" style="font-size:22px; padding-top:10px"><span id="valSig">—</span></div>
+      <div class="sub" id="subSig">connect to begin</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="chart tall">
+      <div class="cap">
+        <h2 style="margin:0">Breathing band</h2>
+        <span class="note" id="noteResp"></span>
+      </div>
+      <canvas id="cvResp"></canvas>
+      <div class="legend" style="margin-top:6px">
+        <span><i style="background:var(--series-1)"></i>filtered</span>
+        <span><i style="background:var(--marker)"></i>detected breaths</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="chart tall">
+      <div class="cap">
+        <h2 style="margin:0">Cardiac band</h2>
+        <span class="note" id="noteCard"></span>
+      </div>
+      <canvas id="cvCard"></canvas>
+      <div class="legend" style="margin-top:6px">
+        <span><i style="background:var(--series-1)"></i>filtered</span>
+        <span><i style="background:var(--series-2)"></i>envelope</span>
+        <span><i style="background:var(--marker)"></i>detected beats</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel">
+      <div class="chart">
+        <div class="cap"><h2 style="margin:0">Spectrum</h2>
+          <span class="note">source: <span id="noteSpecSrc">—</span></span></div>
+        <canvas id="cvSpec"></canvas>
+        <div class="legend" style="margin-top:6px">
+          <span><i style="background:var(--band); height:8px; width:14px"></i>breathing band</span>
+          <span><i style="background:var(--band-2); height:8px; width:14px"></i>cardiac band</span>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="chart">
+        <div class="cap"><h2 style="margin:0">Raw accelerometer</h2>
+          <span class="note">g</span></div>
+        <canvas id="cvAccel"></canvas>
+        <div class="legend" style="margin-top:6px">
+          <span><i style="background:var(--series-1)"></i>X</span>
+          <span><i style="background:var(--series-2)"></i>Y</span>
+          <span><i style="background:var(--series-3)"></i>Z</span>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="chart">
+        <div class="cap"><h2 style="margin:0">Raw gyroscope</h2>
+          <span class="note">deg/s</span></div>
+        <canvas id="cvGyro"></canvas>
+        <div class="legend" style="margin-top:6px">
+          <span><i style="background:var(--series-1)"></i>X</span>
+          <span><i style="background:var(--series-2)"></i>Y</span>
+          <span><i style="background:var(--series-3)"></i>Z</span>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Device</h2>
+      <table id="tblDevice"><tbody></tbody></table>
+      <div class="row" style="margin-top:10px">
+        <label>ODR <select id="selOdr"></select></label>
+        <label>accel <select id="selAccelFs"></select></label>
+        <label>gyro <select id="selGyroFs"></select></label>
+        <button id="btnIdentify">Identify</button>
+      </div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Recording</h2>
+    <div class="row">
+      <button id="btnRec" class="primary">Start recording</button>
+      <span class="chip">captured <b id="txtRecN">0</b> samples</span>
+      <span class="chip">server file <b id="txtServerRec">off</b></span>
+      <span class="spacer"></span>
+      <label>import <input type="file" id="fileImport" accept=".csv,.json,.txt" style="max-width:210px"></label>
+    </div>
+    <table style="margin-top:10px">
+      <thead><tr>
+        <th>Session</th><th>Started</th><th class="num">Samples</th>
+        <th class="num">Duration</th><th class="num">Gaps</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="tblSessions"></tbody>
+    </table>
+  </section>
+
+</main>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
